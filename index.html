@@ -455,7 +455,9 @@ function saveLocal(){
 }
 
 // Save: writes to localStorage AND Firebase (if admin)
+let _lastLocalWrite = 0;
 function save(){
+  _lastLocalWrite = Date.now();
   saveLocal();
   if(ADMIN_MODE && window._fbSet){
     window._fbSet('padelclub', DB).catch(e=>console.warn('FB write error',e));
@@ -481,9 +483,16 @@ window.initFirebase = function(){
         saveLocal();
         window._fbSet('padelclub', DB);
       } else {
-        // Firebase is up to date — use it as source of truth
-        DB = data;
-        saveLocal();
+        // Firebase is up to date — but only use it if no local write in last 15 seconds
+        const secsSinceWrite = (Date.now() - (_lastLocalWrite||0)) / 1000;
+        if(secsSinceWrite > 300){
+          DB = data;
+          saveLocal();
+        } else {
+          // Local write is recent — ignore Firebase data, our local copy is newer
+          console.log('Ignoring Firebase poll — local write was '+secsSinceWrite.toFixed(1)+'s ago');
+          return;
+        }
       }
       fbSynced = true;
       setSyncStatus('ok');
@@ -1267,6 +1276,18 @@ function resetDatabase(){
 //  CLOSE SESSION
 // ═══════════════════════════════════════════════════════
 function closeSession(){
+  // Re-read from localStorage to get freshest local data (protects against Firebase overwrite)
+  const localDB = loadLocal();
+  if(localDB && localDB.sessions){
+    // Restore any sessions data from localStorage that may be newer than memory
+    localDB.sessions.forEach(ls => {
+      const ms = DB.sessions.find(x=>x.id===ls.id);
+      if(ms && ls.cena && ls.cena.length > (ms.cena||[]).length){
+        ms.cena = ls.cena;
+      }
+    });
+  }
+
   const s = getOrCreateTodaySession();
   if(!s) return;
   if(s.finished){ alert('Questa serata è già stata chiusa.'); return; }
