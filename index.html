@@ -465,6 +465,47 @@ function save(){
 }
 
 // Firebase init — called once Firebase SDK is ready
+
+// ═══════════════════════════════════════════════════════
+//  FIREBASE MERGE — never overwrite historical player data
+// ═══════════════════════════════════════════════════════
+function mergeFbData(fbData){
+  // Sessions always come from Firebase (source of truth for game results)
+  if(fbData.sessions) DB.sessions = fbData.sessions;
+  if(fbData.currentSession !== undefined) DB.currentSession = fbData.currentSession;
+  if(fbData.dataVersion) DB.dataVersion = fbData.dataVersion;
+  if(fbData.totalHistoricSessions) DB.totalHistoricSessions = fbData.totalHistoricSessions;
+
+  // Players: merge only dynamic fields from Firebase, keep seed fields locally
+  if(fbData.players && fbData.players.length){
+    fbData.players.forEach(fbPlayer => {
+      const localPlayer = DB.players.find(p => p.id === fbPlayer.id);
+      if(!localPlayer) return;
+      // Only update fields that change during gameplay
+      if(fbPlayer.seasonalPts !== undefined) localPlayer.seasonalPts = fbPlayer.seasonalPts;
+      if(fbPlayer.historicGames) localPlayer.historicGames = fbPlayer.historicGames;
+      if(fbPlayer.appGames) localPlayer.appGames = fbPlayer.appGames;
+      if(fbPlayer.cenaStats) localPlayer.cenaStats = fbPlayer.cenaStats;
+      // NEVER overwrite: hValore, hAvg, hStd, hN, hPct, name, emoji, yearStart
+    });
+  }
+  saveLocal();
+}
+
+function mergePtsFromFb(fbData){
+  // Restore seasonal pts from Firebase player data
+  if(fbData.players && fbData.players.length){
+    fbData.players.forEach(fbPlayer => {
+      const localPlayer = DB.players.find(p => p.id === fbPlayer.id);
+      if(!localPlayer) return;
+      if(fbPlayer.seasonalPts !== undefined) localPlayer.seasonalPts = fbPlayer.seasonalPts;
+      if(fbPlayer.cenaStats) localPlayer.cenaStats = fbPlayer.cenaStats;
+      if(fbPlayer.appGames) localPlayer.appGames = fbPlayer.appGames;
+      if(fbPlayer.historicGames) localPlayer.historicGames = fbPlayer.historicGames;
+    });
+  }
+}
+
 window.initFirebase = function(){
   if(!window._fbListen) return;
   setSyncStatus('connecting');
@@ -478,18 +519,19 @@ window.initFirebase = function(){
         if(data.sessions && data.sessions.length > 0){
           DB.sessions = data.sessions;
           DB.currentSession = data.currentSession || null;
+          // Also restore seasonal pts from Firebase sessions
+          mergePtsFromFb(data);
         }
         DB.dataVersion = DATA_VERSION;
         saveLocal();
         window._fbSet('padelclub', DB);
       } else {
-        // Firebase is up to date — but only use it if no local write in last 15 seconds
+        // Firebase is up to date — merge carefully
         const secsSinceWrite = (Date.now() - (_lastLocalWrite||0)) / 1000;
         if(secsSinceWrite > 300){
-          DB = data;
-          saveLocal();
+          // Merge: keep historical player data from local seed, take sessions/pts from Firebase
+          mergeFbData(data);
         } else {
-          // Local write is recent — ignore Firebase data, our local copy is newer
           console.log('Ignoring Firebase poll — local write was '+secsSinceWrite.toFixed(1)+'s ago');
           return;
         }
