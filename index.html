@@ -666,19 +666,19 @@ if(!DB.players.length){ el.innerHTML='<div class="empty">Nessun giocatore regist
 function calcForce(p){
   // If player has pre-computed historical stats, use them as base
   // and update incrementally with new app sessions
-  if(p._valore !== undefined){
+  if(p.hValore !== undefined){
     const newSessions = DB.sessions.filter(s=>s.finished && s.checkedIn && s.checkedIn.includes(p.id)).length;
-    if(newSessions === 0) return p._valore;
+    if(newSessions === 0) return p.hValore;
 
     // Blend historical stats with new app games
-    const historicN = p._n || 0;
-    const historicAvg = p._avg || 0;
-    const historicStd = p._std || 0;
+    const historicN = p.hN || 0;
+    const historicAvg = p.hAvg || 0;
+    const historicStd = p.hStd || 0;
 
     // New games from app sessions only (last newSessions entries of historicGames)
     const appGames = (p.historicGames || []).slice(-(newSessions));
     const totalN = historicN + appGames.length;
-    if(totalN === 0) return p._valore;
+    if(totalN === 0) return p.hValore;
 
     // Weighted average
     const appSum = appGames.reduce((a,b)=>a+b,0);
@@ -722,12 +722,12 @@ function viewProfile(pid){
   const force=calcForce(p);
   const games=p.historicGames||[];
   // Use pre-computed spreadsheet values when available (more accurate)
-  const avg = p._avg !== undefined ? p._avg : (games.length?games.reduce((a,b)=>a+b,0)/games.length:0);
-  const std = p._std !== undefined ? p._std : (()=>{ const a2=games.length?games.reduce((a,b)=>a+b,0)/games.length:0; const v=games.length?games.reduce((a,b)=>a+Math.pow(b-a2,2),0)/games.length:0; return Math.sqrt(v); })();
+  const avg = p.hAvg !== undefined ? p.hAvg : (games.length?games.reduce((a,b)=>a+b,0)/games.length:0);
+  const std = p.hStd !== undefined ? p.hStd : (()=>{ const a2=games.length?games.reduce((a,b)=>a+b,0)/games.length:0; const v=games.length?games.reduce((a,b)=>a+Math.pow(b-a2,2),0)/games.length:0; return Math.sqrt(v); })();
   const newSessions=DB.sessions.filter(s=>s.finished&&s.checkedIn.includes(p.id)).length;
-  const sessions=(p._n||0)+newSessions;
+  const sessions=(p.hN||0)+newSessions;
   const total=(DB._totalHistoricSessions||102)+DB.sessions.filter(s=>s.finished).length;
-  const pct=total?Math.round(sessions/total*100):Math.round((p._pct||0)*100);
+  const pct=total?Math.round(sessions/total*100):Math.round((p.hPct||0)*100);
   const srank=rankingStagionale().findIndex(x=>x.id===pid)+1;
   const hrank=rankingStorica().findIndex(x=>x.id===pid)+1;
 
@@ -740,7 +740,7 @@ function viewProfile(pid){
       </div>
     </div>
     ${(()=>{
-      const cs = p._cenaStats || {presente:0, assente:0};
+      const cs = p.cenaStats || {presente:0, assente:0};
       const cenaTot = cs.presente + cs.assente;
       const cenaPct = cenaTot > 0 ? Math.round(cs.presente/cenaTot*100) : null;
       return '<div class="grid3" style="margin-bottom:16px;">'
@@ -1263,7 +1263,7 @@ function resetDatabase(){
   };
   DB.players.forEach(p=>{
     p.seasonalPts = SEA_SEED[p.name] || 0;
-    p._cenaStats = {presente:0, assente:0};
+    p.cenaStats = {presente:0, assente:0};
   });
   save();
   if(window._fbSet) window._fbSet('padelclub', DB);
@@ -1306,8 +1306,8 @@ function closeSession(){
       const player = DB.players.find(p=>p.id===ps.pid);
       if(!player) return;
       // Record new app session games (kept separate from historical seed data)
-      if(!player._appGames) player._appGames=[];
-      player._appGames.push(ps.gamesWon);
+      if(!player.appGames) player.appGames=[];
+      player.appGames.push(ps.gamesWon);
       // Also append to historicGames for chart display (keep last 10+app)
       if(!player.historicGames) player.historicGames=[];
       player.historicGames.push(ps.gamesWon);
@@ -1331,13 +1331,13 @@ function closeSession(){
   s.checkedIn.forEach(pid => {
     const player = DB.players.find(p=>p.id===pid);
     if(!player) return;
-    if(!player._cenaStats) player._cenaStats = { presente: 0, assente: 0 };
+    if(!player.cenaStats) player.cenaStats = { presente: 0, assente: 0 };
     if(cenaAttendees.includes(pid)){
-      player._cenaStats.presente++;
+      player.cenaStats.presente++;
       if(!player.seasonalPts) player.seasonalPts = 0;
       player.seasonalPts += 0.5;
     } else {
-      player._cenaStats.assente++;
+      player.cenaStats.assente++;
     }
   });
 
@@ -1475,7 +1475,7 @@ function showRank(type){
   players.forEach((p,i)=>{
     const force=calcForce(p);
     const appSessions=DB.sessions.filter(s=>s.finished&&s.checkedIn&&s.checkedIn.includes(p.id)).length;
-    const totalSessions=(p._n||0)+appSessions;
+    const totalSessions=(p.hN||0)+appSessions;
     const wins=DB.sessions.filter(s=>s.finished&&s.courts?.some(c=>{const st=calcCourtStandings(c,s);return st[0]?.pid===p.id;})).length;
     // Stagionale: games won in app sessions only (0 until first app session played)
     const seasonalGames=DB.sessions.filter(s=>s.finished).length===0?0:
@@ -1487,7 +1487,7 @@ function showRank(type){
         return tot+(ps?ps.gamesWon:0);
       },0);
     // Storica: use _avg from spreadsheet (media games per serata)
-    const mediaGames=p._avg!==undefined?p._avg.toFixed(1):'-';
+    const mediaGames=p.hAvg!==undefined?p.hAvg.toFixed(1):'-';
     const mainVal=type==='stagionale'?p.seasonalPts?.toFixed(2)||'0.00':force.toFixed(2);
     const col4val=type==='stagionale'?force.toFixed(2):mediaGames;
     const col5val=type==='stagionale'?seasonalGames:totalSessions;
@@ -1539,7 +1539,7 @@ if(window._fbReady){ initFirebase(); } else { setSyncStatus('off'); }
 // Seasonal data: from stagionale 2026 (9 tot after 9 mondays)
 // Force is pre-computed from the spreadsheet VALORE column directly,
 // historicGames array is reconstructed as [avg]*n to preserve avg & approximate std.
-const DATA_VERSION = 7;
+const DATA_VERSION = 8;
 if(DB._dataVersion !== DATA_VERSION){
   DB.players = [];
   DB.sessions = DB.sessions || [];
@@ -1623,11 +1623,11 @@ if(!DB.players.length){
       historicGames,
       seasonalPts: d.sea,
       absences: 0,
-      _valore: d.valore,
-      _avg: d.avg,
-      _std: d.std,
-      _n: d.n,
-      _pct: d.pct,
+      hValore: d.hValore,
+      hAvg: d.hAvg,
+      hStd: d.hStd,
+      hN: d.hN,
+      hPct: d.hPct,
     });
   });
 
